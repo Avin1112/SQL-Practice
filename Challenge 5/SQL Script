@@ -1,0 +1,140 @@
+-- Webpage link for Challenge 5 : https://www.steeldata.org.uk/sql5.html
+
+
+-- Q1) How many pubs are located in each country ?
+-- Answer)
+
+select country , count(distinct(pub_id)) as "Pubs in Each Country" from pubs group by country ; 
+
+-- Q2) What is the total sales amount for each pub, including the beverage price and quantity sold?
+-- Answer)
+
+select pub_id , sum(`price*quantity`) as "total sales" from 
+				    ( select sal.pub_id , bev.price_per_unit , sal.quantity ,  
+                    ( bev.price_per_unit * sal.quantity ) as "Price*Quantity"
+                      from beverages bev inner join sales sal 
+                      on bev.beverage_id = sal.beverage_id ) table1
+group by pub_id ; 
+
+-- Q3) Which pub has the highest average rating?
+-- Answer)
+
+select pub_id as "Pub ID", round( avg(rating) , 2) as "Overall Rating" from ratings group by pub_id ; 
+
+-- Q4) What are the top 5 beverages by sales quantity across all pubs?
+-- Answer)
+
+-- Method 1
+
+with table1 as 
+     ( select pub_id , beverage_id , sum(quantity) as "total quantity" from sales 
+	   group by pub_id , beverage_id 
+	   order by pub_id asc , sum(quantity) desc ) ,
+	 table2 as 
+     ( select pub_id , beverage_id , `total quantity` , 
+	   row_number() over(partition by pub_id order by `total quantity` desc) as "ranking"
+	   from table1 )
+select pub_id as "Pub ID" , beverage_id as "Top 5 beverages for each Pub" , `total quantity` 
+from table2 where ranking <= 5 ; 
+
+-- Method 2
+
+with table1 as 
+     ( select pub_id , beverage_id , sum(quantity) as "total quantity" from sales 
+	   group by pub_id , beverage_id 
+	   order by pub_id asc , sum(quantity) desc ) ,
+	 table2 as 
+     ( select pub_id , beverage_id , `total quantity` , 
+	   row_number() over(partition by pub_id order by `total quantity` desc) as "ranking"
+	   from table1 ) ,
+       table3 as
+	 ( select t2.pub_id , pb.pub_name , t2.beverage_id , bev.beverage_name , t2.`total quantity` , t2.ranking
+	   from table2 t2 inner join pubs pb on t2.pub_id = pb.pub_id 
+					  inner join beverages bev on bev.beverage_id = t2.beverage_id)
+select pub_name as "Pub ID" , beverage_name as "Top 5 beverages for each Pub" , 
+`total quantity` from table3 where ranking <= 5 ; 
+
+-- Q5) How many sales transactions occurred on each date?
+-- Answer)
+
+select transaction_date as "Date", count(sale_id) as "Number of transactions" 
+from sales group by transaction_date ; 
+
+-- Q6) Find the name of someone that had cocktails and which pub they had it in.
+-- Answer)
+
+with table1 as 
+     ( select sal.beverage_id , bev.category , rat.pub_id , rat.customer_name , pb.pub_name
+	   from beverages bev right join sales sal 
+       on sal.beverage_id = bev.beverage_id 
+	   inner join ratings rat on rat.pub_id = sal.pub_id 
+	   inner join pubs pb on rat.pub_id = pb.pub_id )
+select pub_name , customer_name from table1 where category = 'cocktail' ;
+
+-- Q7) What is the average price per unit for each category of beverages, excluding the category 'Spirit'?
+-- Answer)
+
+select category , round( avg(price_per_unit) , 2 ) as "Avg Price"
+from beverages where not category = 'spirit' group by category ; 
+
+-- Q8) Which pubs have a rating higher than the average rating of all pubs?
+-- Answer)
+
+-- Method 1
+
+set @avg := ( select avg(rating) from ratings ) ; 
+
+select pub_id as "Pub ID with rating higher than the average rating of all pubs", rating from 
+                       ( select pub_id , rating , 
+                          if ( rating > @avg , 'Yes' , 'No' ) as "Y/N" 
+                           from ratings ) table1
+where `y/n` = 'yes' ;
+
+-- Method 2
+
+select pub_id as "Pub ID with rating higher than the average rating of all pubs", rating from 
+                       ( select pub_id , rating , 
+                          if ( rating > ( select avg(rating) from ratings ) , 'Yes' , 'No' ) as "Y/N" 
+                           from ratings ) table1
+where `y/n` = 'yes' ;
+
+
+-- Q10) For each country, what is the average price per unit of beverages in each category, 
+--      and what is the overall average price per unit of beverages across all categories ?
+
+-- Answer)
+select country , category , round(avg(price_per_unit) , 2) as "Avg Price"
+             from 
+			( select pb.country , bev.category , bev.price_per_unit
+              from pubs pb inner join sales sal on pb.pub_id = sal.pub_id 
+			  inner join beverages bev on sal.beverage_id = bev.beverage_id ) table1 
+group by country , category;  
+
+
+select round( avg(price_per_unit) , 2 ) as "overall average price per unit of beverages across all categories" from beverages ; 
+
+
+-- Q11) For each pub, what is the percentage contribution of each category of beverages to the total sales amount, 
+--      and what is the pub's overall sales amount?
+
+-- Answer)
+
+with   table1 as 
+         ( select pb.pub_name , bev.beverage_id , bev.category , bev.price_per_unit , 
+           sal.quantity , ( bev.price_per_unit * sal.quantity ) as "price*unit"
+           from sales sal inner join beverages bev on bev.beverage_id = sal.beverage_id 
+						  inner join pubs pb on pb.pub_id = sal.pub_id )  , 
+	   table2 as 
+		  ( select pub_name , category , sum(`price*unit`) as "total sales" 
+			 from table1 group by pub_name , category ) ,
+	   table3 as 
+          ( select pub_name , sum(`price*unit`) as "Overall Sales by Each Pub" from table1 group by pub_name) ,
+	   table4 as
+	      ( select t2.pub_name , t2.category , t2.`total sales` as "Total Sales by Each Category in Each Pub" , 
+		    t3.`Overall Sales by Each Pub`
+		    from table3 t3 inner join table2 t2 on t2.pub_name = t3.pub_name order by t2.pub_name )
+select pub_name as "Pub Name" , category as "Category" , `Total Sales by Each Category in Each Pub` , 
+							 `Overall Sales by Each Pub` , 
+                       round( (`Total Sales by Each Category in Each Pub` / `Overall Sales by Each Pub` )*100 , 2 )
+                               as "Contribution ( in % ) of Category Sales to Overall Sales"  
+from table4; 
